@@ -8,53 +8,54 @@ import config
 
 # تحديد المسارات
 data_dir = config.DATA_DIR
-val_labels_path = config.VAL_SPLIT_CSV
-model_path = config.MODEL_SAVE_PATH
 
-# قراءة ملفات التسميات المقسمة
-val_df = pd.read_csv(val_labels_path)
+# تحليل كل طية من النماذج المدربة
+for fold in range(1, config.N_SPLITS + 1):
+    print(f"\n📊 Evaluating Fold {fold} Model")
 
-# تحميل النموذج المدرب
-model = tf.keras.models.load_model(model_path)
+    val_labels_path = config.FOLD_CSV_TEMPLATE.format(fold, 'val')
+    model_path = os.path.join(config.MODEL_SAVE_DIR, f'model_fold{fold}.h5')
 
-# إعداد مولد البيانات للتحقق
-val_datagen = ImageDataGenerator(rescale=1./255)
+    # قراءة ملف التحقق لهذا الطي
+    val_df = pd.read_csv(val_labels_path)
 
-validation_generator = val_datagen.flow_from_dataframe(
-    dataframe=val_df,
-    directory=os.path.join(data_dir, "train"),  # مسار الصور للتحقق
-    x_col="filename",
-    y_col="label",
-    target_size=config.TARGET_SIZE,
-    batch_size=config.BATCH_SIZE,
-    class_mode="categorical",
-    shuffle=False  # مهم لتقييم الأداء
-)
+    # تحميل النموذج المدرب
+    model = tf.keras.models.load_model(model_path)
 
-# الحصول على التنبؤات
-Y_pred = model.predict(validation_generator)
-y_pred_classes = np.argmax(Y_pred, axis=1)
+    # إعداد مولد البيانات للتحقق
+    val_datagen = ImageDataGenerator(rescale=1./255)
+    validation_generator = val_datagen.flow_from_dataframe(
+        dataframe=val_df,
+        directory=os.path.join(data_dir, "train"),  # مسار الصور للتحقق
+        x_col="filename",
+        y_col="label",
+        target_size=config.TARGET_SIZE,
+        batch_size=config.BATCH_SIZE,
+        class_mode="categorical",
+        shuffle=False
+    )
 
-# الحصول على الفئات الحقيقية
-y_true_classes = validation_generator.classes
+    # الحصول على التنبؤات
+    Y_pred = model.predict(validation_generator)
+    y_pred_classes = np.argmax(Y_pred, axis=1)
 
-# الحصول على أسماء الفئات
-class_labels = list(validation_generator.class_indices.keys())
+    # الحصول على الفئات الحقيقية
+    y_true_classes = validation_generator.classes
+    class_labels = list(validation_generator.class_indices.keys())
 
-# طباعة تقرير التصنيف
-report = classification_report(y_true_classes, y_pred_classes, target_names=class_labels)
-print("تقرير التصنيف:")
-print(report)
+    # تقرير التصنيف
+    report = classification_report(y_true_classes, y_pred_classes, target_names=class_labels)
+    print("تقرير التصنيف:")
+    print(report)
 
-# طباعة مصفوفة الارتباك
-conf_matrix = confusion_matrix(y_true_classes, y_pred_classes)
-print("مصفوفة الارتباك:")
-print(conf_matrix)
+    # مصفوفة الارتباك
+    conf_matrix = confusion_matrix(y_true_classes, y_pred_classes)
+    print("مصفوفة الارتباك:")
+    print(conf_matrix)
 
-# حفظ تقرير التصنيف في ملف
-with open(config.CLASSIFICATION_REPORT_FILE, "w") as f:
-    f.write(report)
+    # حفظ تقرير التصنيف
+    report_file = f"classification_report_fold_{fold}.txt"
+    with open(os.path.join(config.DATA_DIR, report_file), "w") as f:
+        f.write(report)
 
-print("تم حفظ تقرير التصنيف في classification_report.txt")
-
-
+    print(f"✅ تم حفظ التقرير في {report_file}")

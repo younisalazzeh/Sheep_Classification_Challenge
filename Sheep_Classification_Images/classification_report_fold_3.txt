@@ -1,0 +1,13 @@
+              precision    recall  f1-score   support
+
+     Barbari       0.75      0.43      0.55         7
+        Goat       0.79      0.90      0.84        21
+       Harri       0.82      0.75      0.78        12
+      Naeimi       0.87      0.94      0.91        51
+       Najdi       1.00      0.93      0.96        14
+       Roman       0.83      0.67      0.74        15
+     Sawakni       0.88      0.94      0.91        16
+
+    accuracy                           0.86       136
+   macro avg       0.85      0.79      0.81       136
+weighted avg       0.86      0.86      0.85       136

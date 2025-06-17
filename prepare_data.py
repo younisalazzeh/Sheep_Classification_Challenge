@@ -1,25 +1,24 @@
 import pandas as pd
-from sklearn.model_selection import train_test_split
-import os
+from sklearn.model_selection import StratifiedKFold
 import config
+import os
 
-# تحديد المسارات
-data_dir = config.DATA_DIR
-labels_file = config.TRAIN_LABELS_CSV
+def create_stratified_folds():
+    df = pd.read_csv(config.TRAIN_LABELS_CSV)
 
-# قراءة ملف التسميات
-df = pd.read_csv(labels_file)
+    skf = StratifiedKFold(n_splits=config.N_SPLITS, shuffle=True, random_state=42)
 
-# تقسيم البيانات إلى تدريب وتحقق
-train_df, val_df = train_test_split(df, test_size=config.TEST_SIZE, stratify=df["label"], random_state=config.RANDOM_STATE)
+    for fold, (train_idx, val_idx) in enumerate(skf.split(df['filename'], df['label']), 1):
+        train_df = df.iloc[train_idx]
+        val_df = df.iloc[val_idx]
 
-print(f'عدد صور التدريب: {len(train_df)}')
-print(f'عدد صور التحقق: {len(val_df)}')
+        train_path = config.FOLD_CSV_TEMPLATE.format(fold, 'train')
+        val_path = config.FOLD_CSV_TEMPLATE.format(fold, 'val')
 
-# حفظ ملفات CSV الجديدة
-train_df.to_csv(config.TRAIN_SPLIT_CSV, index=False)
-val_df.to_csv(config.VAL_SPLIT_CSV, index=False)
+        train_df.to_csv(train_path, index=False)
+        val_df.to_csv(val_path, index=False)
 
-print('تم حفظ ملفات train_split.csv و val_split.csv')
+        print(f'✅ Fold {fold} - Train: {len(train_df)}, Val: {len(val_df)}')
 
-
+if __name__ == "__main__":
+    create_stratified_folds()

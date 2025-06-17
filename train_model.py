@@ -1,95 +1,93 @@
 import tensorflow as tf
-from tensorflow.keras.applications import MobileNetV2
-from tensorflow.keras.layers import Dense, Dropout, GlobalAveragePooling2D
-from tensorflow.keras.models import Model
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import pandas as pd
-import config
 import os
+import matplotlib.pyplot as plt
+import config
+from tensorflow.keras.applications import MobileNetV2
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import GlobalAveragePooling2D, Dense, Dropout
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
+from Data_augmentation import get_data_generators
 
-def create_transfer_learning_model(num_classes):
-    base_model = MobileNetV2(input_shape=(*config.TARGET_SIZE, 3),
-                             include_top=False,
-                             weights='imagenet')
-    base_model.trainable = False  # Freeze base model layers
+def create_model(num_classes):
+    base_model = MobileNetV2(weights='imagenet', include_top=False, input_shape=(config.TARGET_SIZE[0], config.TARGET_SIZE[1], 3))
+    base_model.trainable = False  # Freeze base
 
-    x = base_model.output
-    x = GlobalAveragePooling2D()(x)
+    x = GlobalAveragePooling2D()(base_model.output)
+    x = Dense(256, activation='relu')(x)
     x = Dropout(0.5)(x)
     output = Dense(num_classes, activation='softmax')(x)
 
     model = Model(inputs=base_model.input, outputs=output)
     return model
 
-def main():
-    # Load dataframes
-    train_df = pd.read_csv(config.TRAIN_SPLIT_CSV)
-    val_df = pd.read_csv(config.VAL_SPLIT_CSV)
+def train_one_fold(fold):
+    print(f"\n🚀 Training Fold {fold}")
+    train_csv = config.FOLD_CSV_TEMPLATE.format(fold, 'train')
+    val_csv = config.FOLD_CSV_TEMPLATE.format(fold, 'val')
 
-    # Data augmentation parameters, you can adjust or import from config
-    augmentation_params = dict(
-        rotation_range=20,
-        width_shift_range=0.2,
-        height_shift_range=0.2,
-        shear_range=0.2,
-        zoom_range=0.2,
-        horizontal_flip=True,
-        brightness_range=[0.8, 1.2],
-        fill_mode="nearest"
-    )
+    train_df = pd.read_csv(train_csv)
+    val_df = pd.read_csv(val_csv)
 
-    train_datagen = ImageDataGenerator(rescale=1./255, **augmentation_params)
-    val_datagen = ImageDataGenerator(rescale=1./255)
+    num_classes = train_df['label'].nunique()
 
-    train_generator = train_datagen.flow_from_dataframe(
+    train_gen, val_gen = get_data_generators()
+
+    train_generator = train_gen.flow_from_dataframe(
         dataframe=train_df,
-        directory=os.path.join(config.DATA_DIR, "train"),
-        x_col="filename",
-        y_col="label",
+        directory=os.path.join(config.DATA_DIR, 'train'),
+        x_col='filename',
+        y_col='label',
         target_size=config.TARGET_SIZE,
         batch_size=config.BATCH_SIZE,
-        class_mode='categorical',
-        shuffle=True,
-        seed=42
+        class_mode='categorical'
     )
 
-    val_generator = val_datagen.flow_from_dataframe(
+    val_generator = val_gen.flow_from_dataframe(
         dataframe=val_df,
-        directory=os.path.join(config.DATA_DIR, "train"),
-        x_col="filename",
-        y_col="label",
+        directory=os.path.join(config.DATA_DIR, 'train'),
+        x_col='filename',
+        y_col='label',
         target_size=config.TARGET_SIZE,
         batch_size=config.BATCH_SIZE,
-        class_mode='categorical',
-        shuffle=False
+        class_mode='categorical'
     )
 
-    num_classes = len(train_df['label'].unique())
-    model = create_transfer_learning_model(num_classes)
+    model = create_model(num_classes)
+    model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
 
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
-                  loss='categorical_crossentropy',
-                  metrics=['accuracy'])
+    callbacks = [
+        EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True),
+        ReduceLROnPlateau(monitor='val_loss', factor=0.3, patience=3),
+        ModelCheckpoint(
+            filepath=os.path.join(config.MODEL_SAVE_DIR, f'model_fold{fold}.h5'),
+            save_best_only=True,
+            monitor='val_accuracy'
+        )
+    ]
 
     history = model.fit(
         train_generator,
-        epochs=config.EPOCHS,
         validation_data=val_generator,
-        callbacks=[
-            tf.keras.callbacks.EarlyStopping(monitor='val_accuracy', patience=7, restore_best_weights=True),
-            tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=3)
-        ],
+        epochs=config.EPOCHS,
+        callbacks=callbacks,
         verbose=1
     )
 
-    model.save(config.MODEL_SAVE_PATH)
-    print(f"✅ Model saved at: {config.MODEL_SAVE_PATH}")
-
-    # Print final accuracies
-    final_train_acc = history.history['accuracy'][-1]
-    final_val_acc = history.history['val_accuracy'][-1]
-    print(f"📊 Final Training Accuracy: {final_train_acc:.4f}")
-    print(f"📊 Final Validation Accuracy: {final_val_acc:.4f}")
+    # Save accuracy plot
+    plt.figure()
+    plt.plot(history.history['accuracy'], label='Train Acc')
+    plt.plot(history.history['val_accuracy'], label='Val Acc')
+    plt.title(f'Accuracy - Fold {fold}')
+    plt.xlabel('Epochs')
+    plt.ylabel('Accuracy')
+    plt.legend()
+    plt.grid(True)
+    plot_path = config.PLOT_SAVE_PATH.format(fold)
+    plt.savefig(plot_path)
+    print(f"📈 Saved accuracy plot: {plot_path}")
+    plt.close()
 
 if __name__ == "__main__":
-    main()
+    for fold in range(1, config.N_SPLITS + 1):
+        train_one_fold(fold)
